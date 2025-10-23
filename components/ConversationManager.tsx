@@ -155,7 +155,7 @@ export default function ConversationManager({ opportunityId, vendors }: Conversa
       } else {
         throw new Error(result.error);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending email:', error);
       toast({
         title: "Failed to send email",
