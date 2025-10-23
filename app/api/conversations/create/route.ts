@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db, { initDB } from '@/lib/db/database';
+import { sql } from '@vercel/postgres';
 import { randomUUID } from 'crypto';
-
-initDB();
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,36 +14,37 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if conversation already exists
-    const existing = db.prepare(
-      'SELECT id FROM conversations WHERE vendor_id = ? AND opportunity_id = ?'
-    ).get(vendorId, opportunityId);
+    const existing = await sql`
+      SELECT id FROM conversations
+      WHERE vendor_id = ${vendorId} AND opportunity_id = ${opportunityId}
+    `;
 
-    if (existing) {
+    if (existing.rows.length > 0) {
       return NextResponse.json({
         success: true,
-        conversationId: (existing as any).id,
+        conversationId: existing.rows[0].id,
         existed: true
       });
     }
 
     // Create new conversation
     const conversationId = randomUUID();
-    db.prepare(`
+    await sql`
       INSERT INTO conversations (id, vendor_id, opportunity_id, vendor_email, status)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(conversationId, vendorId, opportunityId, vendorEmail, 'pending');
+      VALUES (${conversationId}, ${vendorId}, ${opportunityId}, ${vendorEmail}, 'pending')
+    `;
 
     // Record initial email message
-    db.prepare(`
+    await sql`
       INSERT INTO messages (id, conversation_id, direction, subject, message_body)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
-      randomUUID(),
-      conversationId,
-      'outbound',
-      'New Project Opportunity - Waste Management Services',
-      'Initial opportunity email sent with Yes/No response buttons'
-    );
+      VALUES (
+        ${randomUUID()},
+        ${conversationId},
+        'outbound',
+        'New Project Opportunity - Waste Management Services',
+        'Initial opportunity email sent with Yes/No response buttons'
+      )
+    `;
 
     return NextResponse.json({
       success: true,

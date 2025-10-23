@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db, { initDB } from '@/lib/db/database';
-
-initDB();
+import { sql } from '@vercel/postgres';
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,11 +13,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const conversations = db.prepare(
-      'SELECT * FROM conversations WHERE opportunity_id = ? ORDER BY created_at DESC'
-    ).all(opportunityId);
+    const result = await sql`
+      SELECT * FROM conversations
+      WHERE opportunity_id = ${opportunityId}
+      ORDER BY created_at DESC
+    `;
 
-    return NextResponse.json({ conversations });
+    return NextResponse.json({ conversations: result.rows });
   } catch (error: any) {
     console.error('Error fetching conversations:', error);
     return NextResponse.json(

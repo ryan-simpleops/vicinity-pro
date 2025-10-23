@@ -3,7 +3,7 @@ import { cleanupOldConversations } from '@/lib/db/cleanup';
 
 export async function GET() {
   try {
-    cleanupOldConversations();
+    await cleanupOldConversations();
     return NextResponse.json({ success: true, message: 'Cleanup completed' });
   } catch (error: any) {
     console.error('Error running cleanup:', error);

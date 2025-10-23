@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db, { initDB } from '@/lib/db/database';
+import { sql } from '@vercel/postgres';
 import { sendEmail } from '@/lib/email';
 import { randomUUID } from 'crypto';
 import vendorsData from '@/data/vendors.json';
-
-initDB();
 
 export async function POST(
   request: NextRequest,
@@ -15,7 +13,10 @@ export async function POST(
     const { opportunityId } = await request.json();
 
     // Get conversation
-    const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId) as any;
+    const conversationResult = await sql`
+      SELECT * FROM conversations WHERE id = ${conversationId}
+    `;
+    const conversation = conversationResult.rows[0];
 
     if (!conversation) {
       return NextResponse.json(
@@ -25,7 +26,10 @@ export async function POST(
     }
 
     // Get quote
-    const quote = db.prepare('SELECT * FROM quotes WHERE conversation_id = ?').get(conversationId) as any;
+    const quoteResult = await sql`
+      SELECT * FROM quotes WHERE conversation_id = ${conversationId}
+    `;
+    const quote = quoteResult.rows[0];
 
     if (!quote) {
       return NextResponse.json(
@@ -44,9 +48,11 @@ export async function POST(
     }
 
     // Update conversation status to awarded
-    db.prepare(
-      'UPDATE conversations SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).run('awarded', conversationId);
+    await sql`
+      UPDATE conversations
+      SET status = 'awarded', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${conversationId}
+    `;
 
     // Create agreement token (same as conversation ID for simplicity)
     const agreementToken = conversationId;
@@ -91,33 +97,36 @@ export async function POST(
     });
 
     // Record message
-    db.prepare(`
+    await sql`
       INSERT INTO messages (id, conversation_id, direction, subject, message_body)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
-      randomUUID(),
-      conversationId,
-      'outbound',
-      'Congratulations! Your Bid Has Been Accepted',
-      `Sent agreement link: ${agreementUrl}`
-    );
+      VALUES (
+        ${randomUUID()},
+        ${conversationId},
+        'outbound',
+        'Congratulations! Your Bid Has Been Accepted',
+        ${`Sent agreement link: ${agreementUrl}`}
+      )
+    `;
 
     // Send rejection emails to all other vendors who quoted
-    const otherQuotedConversations = db.prepare(`
+    const otherQuotedResult = await sql`
       SELECT c.*, q.quote_amount
       FROM conversations c
       INNER JOIN quotes q ON c.id = q.conversation_id
-      WHERE c.opportunity_id = ? AND c.id != ? AND c.status = 'quoted'
-    `).all(opportunityId, conversationId) as any[];
+      WHERE c.opportunity_id = ${opportunityId} AND c.id != ${conversationId} AND c.status = 'quoted'
+    `;
+    const otherQuotedConversations = otherQuotedResult.rows;
 
     for (const otherConv of otherQuotedConversations) {
       const otherVendor = vendorsData.find((v: any) => v.id === otherConv.vendor_id);
       if (!otherVendor) continue;
 
       // Update status to declined
-      db.prepare(
-        'UPDATE conversations SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-      ).run('declined', otherConv.id);
+      await sql`
+        UPDATE conversations
+        SET status = 'declined', updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${otherConv.id}
+      `;
 
       // Send rejection email
       await sendEmail({
@@ -143,16 +152,16 @@ export async function POST(
       });
 
       // Record rejection message
-      db.prepare(`
+      await sql`
         INSERT INTO messages (id, conversation_id, direction, subject, message_body)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(
-        randomUUID(),
-        otherConv.id,
-        'outbound',
-        'Update on Your Bid Submission',
-        'Vendor was not selected for this opportunity'
-      );
+        VALUES (
+          ${randomUUID()},
+          ${otherConv.id},
+          'outbound',
+          'Update on Your Bid Submission',
+          'Vendor was not selected for this opportunity'
+        )
+      `;
     }
 
     return NextResponse.json({

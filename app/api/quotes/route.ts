@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db, { initDB } from '@/lib/db/database';
+import { sql } from '@vercel/postgres';
 import { randomUUID } from 'crypto';
-
-// Initialize database
-initDB();
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,7 +10,10 @@ export async function GET(request: NextRequest) {
 
     // If fetching for a specific conversation
     if (conversationId) {
-      const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId);
+      const conversationResult = await sql`
+        SELECT * FROM conversations WHERE id = ${conversationId}
+      `;
+      const conversation = conversationResult.rows[0];
 
       if (!conversation) {
         return NextResponse.json(
@@ -22,7 +22,10 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const existingQuote = db.prepare('SELECT * FROM quotes WHERE conversation_id = ?').get(conversationId);
+      const quoteResult = await sql`
+        SELECT * FROM quotes WHERE conversation_id = ${conversationId}
+      `;
+      const existingQuote = quoteResult.rows[0];
 
       return NextResponse.json({
         success: true,
@@ -34,8 +37,10 @@ export async function GET(request: NextRequest) {
 
     // If fetching all quotes for an opportunity
     if (opportunityId) {
-      const quotes = db.prepare('SELECT * FROM quotes WHERE opportunity_id = ?').all(opportunityId);
-      return NextResponse.json({ quotes });
+      const quotesResult = await sql`
+        SELECT * FROM quotes WHERE opportunity_id = ${opportunityId}
+      `;
+      return NextResponse.json({ quotes: quotesResult.rows });
     }
 
     return NextResponse.json(
@@ -63,7 +68,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Get conversation data
-    const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId) as any;
+    const conversationResult = await sql`
+      SELECT * FROM conversations WHERE id = ${conversationId}
+    `;
+    const conversation = conversationResult.rows[0];
 
     if (!conversation) {
       return NextResponse.json(
@@ -73,9 +81,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if already quoted
-    const existingQuote = db.prepare('SELECT * FROM quotes WHERE conversation_id = ?').get(conversationId);
+    const existingQuoteResult = await sql`
+      SELECT * FROM quotes WHERE conversation_id = ${conversationId}
+    `;
 
-    if (existingQuote) {
+    if (existingQuoteResult.rows.length > 0) {
       return NextResponse.json(
         { success: false, error: 'Quote already submitted' },
         { status: 400 }
@@ -83,36 +93,38 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert quote
-    db.prepare(`
+    await sql`
       INSERT INTO quotes (id, conversation_id, vendor_id, opportunity_id, quote_amount, notes, arrival_date, arrival_time)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      randomUUID(),
-      conversationId,
-      conversation.vendor_id,
-      conversation.opportunity_id,
-      quoteAmount,
-      notes || null,
-      arrivalDate || null,
-      arrivalTime || null
-    );
+      VALUES (
+        ${randomUUID()},
+        ${conversationId},
+        ${conversation.vendor_id},
+        ${conversation.opportunity_id},
+        ${quoteAmount},
+        ${notes || null},
+        ${arrivalDate || null},
+        ${arrivalTime || null}
+      )
+    `;
 
     // Update conversation status
-    db.prepare(
-      'UPDATE conversations SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).run('quoted', conversationId);
+    await sql`
+      UPDATE conversations
+      SET status = 'quoted', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${conversationId}
+    `;
 
     // Add message record
-    db.prepare(`
+    await sql`
       INSERT INTO messages (id, conversation_id, direction, subject, message_body)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
-      randomUUID(),
-      conversationId,
-      'inbound',
-      'Quote Submitted',
-      `Quote amount: $${parseFloat(quoteAmount).toLocaleString()}\n\nNotes: ${notes || 'None'}`
-    );
+      VALUES (
+        ${randomUUID()},
+        ${conversationId},
+        'inbound',
+        'Quote Submitted',
+        ${`Quote amount: $${parseFloat(quoteAmount).toLocaleString()}\n\nNotes: ${notes || 'None'}`}
+      )
+    `;
 
     return NextResponse.json({
       success: true,

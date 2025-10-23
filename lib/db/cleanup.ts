@@ -1,28 +1,17 @@
-import db from './database';
+import { sql } from '@vercel/postgres';
 
-export function cleanupOldConversations() {
+export async function cleanupOldConversations() {
   try {
     // Delete conversations older than 1 hour
-    const result = db.prepare(`
+    const result = await sql`
       DELETE FROM conversations
-      WHERE datetime(created_at) < datetime('now', '-1 hour')
-    `).run();
+      WHERE created_at < NOW() - INTERVAL '1 hour'
+    `;
 
-    if (result.changes > 0) {
-      console.log(`Cleaned up ${result.changes} old conversations`);
-    }
+    console.log(`Cleaned up ${result.rowCount} old conversations`);
+    return { success: true, deletedCount: result.rowCount };
   } catch (error) {
-    console.error('Error cleaning up old conversations:', error);
+    console.error('Error cleaning up conversations:', error);
+    return { success: false, error };
   }
-}
-
-// Run cleanup every 15 minutes
-export function startCleanupScheduler() {
-  // Run immediately on startup
-  cleanupOldConversations();
-
-  // Then run every 15 minutes
-  setInterval(() => {
-    cleanupOldConversations();
-  }, 15 * 60 * 1000); // 15 minutes
 }

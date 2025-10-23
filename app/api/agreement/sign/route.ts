@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db, { initDB } from '@/lib/db/database';
+import { sql } from '@vercel/postgres';
 import { sendEmail } from '@/lib/email';
 import { randomUUID } from 'crypto';
 import vendorsData from '@/data/vendors.json';
-
-initDB();
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,7 +16,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Get conversation
-    const conversation = db.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId) as any;
+    const conversationResult = await sql`
+      SELECT * FROM conversations WHERE id = ${conversationId}
+    `;
+    const conversation = conversationResult.rows[0];
 
     if (!conversation) {
       return NextResponse.json(
@@ -35,7 +36,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Get quote
-    const quote = db.prepare('SELECT * FROM quotes WHERE conversation_id = ?').get(conversationId) as any;
+    const quoteResult = await sql`
+      SELECT * FROM quotes WHERE conversation_id = ${conversationId}
+    `;
+    const quote = quoteResult.rows[0];
 
     if (!quote) {
       return NextResponse.json(
@@ -54,29 +58,33 @@ export async function POST(request: NextRequest) {
     }
 
     // Update conversation status
-    db.prepare(
-      'UPDATE conversations SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).run('agreement_signed', conversationId);
+    await sql`
+      UPDATE conversations
+      SET status = 'agreement_signed', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${conversationId}
+    `;
 
     // Record signature message
-    db.prepare(`
+    await sql`
       INSERT INTO messages (id, conversation_id, direction, subject, message_body)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
-      randomUUID(),
-      conversationId,
-      'inbound',
-      'Agreement Signed',
-      `Agreement signed by ${fullName} (${title})`
-    );
+      VALUES (
+        ${randomUUID()},
+        ${conversationId},
+        'inbound',
+        'Agreement Signed',
+        ${`Agreement signed by ${fullName} (${title})`}
+      )
+    `;
 
     // Generate PO number
     const poNumber = `PO-${Date.now()}-${conversation.vendor_id}`;
 
     // Update status to PO issued
-    db.prepare(
-      'UPDATE conversations SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).run('po_issued', conversationId);
+    await sql`
+      UPDATE conversations
+      SET status = 'po_issued', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${conversationId}
+    `;
 
     // Send confirmation email to vendor with PO
     await sendEmail({
@@ -116,16 +124,16 @@ export async function POST(request: NextRequest) {
     });
 
     // Record PO email
-    db.prepare(`
+    await sql`
       INSERT INTO messages (id, conversation_id, direction, subject, message_body)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
-      randomUUID(),
-      conversationId,
-      'outbound',
-      `Purchase Order ${poNumber} - Project Confirmed`,
-      `Purchase order generated: ${poNumber}`
-    );
+      VALUES (
+        ${randomUUID()},
+        ${conversationId},
+        'outbound',
+        ${`Purchase Order ${poNumber} - Project Confirmed`},
+        ${`Purchase order generated: ${poNumber}`}
+      )
+    `;
 
     return NextResponse.json({
       success: true,

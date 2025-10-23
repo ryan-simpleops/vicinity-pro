@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db, { initDB } from '@/lib/db/database';
+import { sql } from '@vercel/postgres';
 import { sendEmail } from '@/lib/email';
 import { randomUUID } from 'crypto';
 import vendorsData from '@/data/vendors.json';
-
-// Initialize database
-initDB();
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,39 +21,50 @@ export async function POST(request: NextRequest) {
     const conversationId = randomUUID();
 
     // Check if conversation already exists
-    const existingConv = db.prepare(
-      'SELECT id FROM conversations WHERE vendor_id = ? AND opportunity_id = ?'
-    ).get(vendorId, opportunityId) as { id: string } | undefined;
+    const existingConvResult = await sql`
+      SELECT id FROM conversations
+      WHERE vendor_id = ${vendorId} AND opportunity_id = ${opportunityId}
+    `;
+    const existingConv = existingConvResult.rows[0];
 
     let convId: string;
     if (existingConv) {
       convId = existingConv.id;
       // Update existing conversation status
-      db.prepare(
-        'UPDATE conversations SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-      ).run(response === 'yes' ? 'interested' : 'not_interested', convId);
+      await sql`
+        UPDATE conversations
+        SET status = ${response === 'yes' ? 'interested' : 'not_interested'},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${convId}
+      `;
     } else {
       // Create new conversation
       convId = conversationId;
-      db.prepare(`
+      await sql`
         INSERT INTO conversations (id, vendor_id, opportunity_id, vendor_email, status)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(convId, vendorId, opportunityId, email, response === 'yes' ? 'interested' : 'not_interested');
+        VALUES (
+          ${convId},
+          ${vendorId},
+          ${opportunityId},
+          ${email},
+          ${response === 'yes' ? 'interested' : 'not_interested'}
+        )
+      `;
     }
 
     // Record the response as a message
-    db.prepare(`
+    await sql`
       INSERT INTO messages (id, conversation_id, direction, subject, message_body)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
-      randomUUID(),
-      convId,
-      'inbound',
-      response === 'yes' ? 'Interested in Opportunity' : 'Declined Opportunity',
-      response === 'yes'
-        ? 'Vendor clicked "Yes, I\'m Interested" button'
-        : 'Vendor clicked "No, Thanks" button'
-    );
+      VALUES (
+        ${randomUUID()},
+        ${convId},
+        'inbound',
+        ${response === 'yes' ? 'Interested in Opportunity' : 'Declined Opportunity'},
+        ${response === 'yes'
+          ? 'Vendor clicked "Yes, I\'m Interested" button'
+          : 'Vendor clicked "No, Thanks" button'}
+      )
+    `;
 
     // If vendor said yes, send them the bid request form
     if (response === 'yes') {
@@ -93,16 +101,16 @@ export async function POST(request: NextRequest) {
       });
 
       // Record the bid request email as an outbound message
-      db.prepare(`
+      await sql`
         INSERT INTO messages (id, conversation_id, direction, subject, message_body)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(
-        randomUUID(),
-        convId,
-        'outbound',
-        'Bid Request Form - Submit Your Quote',
-        `Sent bid request form link: ${quoteUrl}`
-      );
+        VALUES (
+          ${randomUUID()},
+          ${convId},
+          'outbound',
+          'Bid Request Form - Submit Your Quote',
+          ${`Sent bid request form link: ${quoteUrl}`}
+        )
+      `;
 
       return NextResponse.json({
         success: true,
