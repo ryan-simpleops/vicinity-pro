@@ -1,11 +1,11 @@
 "use client";
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
-const VendorResponse = () => {
+function VendorResponseContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing');
@@ -113,6 +113,19 @@ const VendorResponse = () => {
       </Card>
     </div>
   );
-};
+}
 
-export default VendorResponse;
+export default function VendorResponse() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="max-w-md w-full p-8 text-center">
+          <Loader2 className="h-16 w-16 mx-auto mb-4 text-blue-500 animate-spin" />
+          <h1 className="text-2xl font-bold mb-2">Loading...</h1>
+        </Card>
+      </div>
+    }>
+      <VendorResponseContent />
+    </Suspense>
+  );
+}
