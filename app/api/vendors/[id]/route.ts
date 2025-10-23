@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
+import vendorsData from '@/data/vendors.json';
 
 export async function GET(
   request: NextRequest,
@@ -8,12 +7,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-
-    const filePath = path.join(process.cwd(), 'data', 'vendors.json');
-    const fileContents = await fs.readFile(filePath, 'utf8');
-    const vendors = JSON.parse(fileContents);
-
-    const vendor = vendors.find((v: any) => v.id === parseInt(id));
+    const vendor = vendorsData.find((v: any) => v.id === parseInt(id));
 
     if (!vendor) {
       return NextResponse.json(
@@ -40,31 +34,27 @@ export async function PATCH(
     const { id } = await params;
     const updates = await request.json();
 
-    const filePath = path.join(process.cwd(), 'data', 'vendors.json');
-    const fileContents = await fs.readFile(filePath, 'utf8');
-    const vendors = JSON.parse(fileContents);
+    const vendor = vendorsData.find((v: any) => v.id === parseInt(id));
 
-    const vendorIndex = vendors.findIndex((v: any) => v.id === parseInt(id));
-
-    if (vendorIndex === -1) {
+    if (!vendor) {
       return NextResponse.json(
         { error: 'Vendor not found' },
         { status: 404 }
       );
     }
 
-    // Update vendor with new data
-    vendors[vendorIndex] = {
-      ...vendors[vendorIndex],
+    // Since we can't write to JSON file on Vercel, vendor edits are stored in localStorage
+    // This endpoint returns success to maintain compatibility with the frontend
+    // The actual persistence happens client-side via localStorage in VendorList component
+
+    const updatedVendor = {
+      ...vendor,
       ...updates
     };
 
-    // Write back to file
-    await fs.writeFile(filePath, JSON.stringify(vendors, null, 2));
-
     return NextResponse.json({
       success: true,
-      vendor: vendors[vendorIndex]
+      vendor: updatedVendor
     });
   } catch (error: any) {
     console.error('Error updating vendor:', error);
