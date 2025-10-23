@@ -104,7 +104,7 @@ const VendorMap = ({ mapboxToken, onJobsiteSelected, onJobsiteCleared, filteredV
                 <p class="text-sm text-gray-600">${vendor.email || 'No email'}</p>
               </div>
             `))
-            .addTo(map.current);
+            .addTo(map.current!);
           
           vendorMarkers.current.push(marker);
         }

@@ -80,7 +80,7 @@ const VendorList = ({ vendors, selectedVendors, onVendorSelect, onVendorUpdated 
       } else {
         throw new Error(result.error);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending email:', error);
       toast({
         title: "Failed to send email",
